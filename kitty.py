@@ -7,13 +7,13 @@ import requests
 import re
 
 # loads a cryptokitties page
-def get_ck_soup(url, selenium=False):
+def get_ck_soup(url, tag=None, selenium=False):
   if not selenium:
     r = render.Render(url)
     html = unicode(r.frame.toHtml())
     return BeautifulSoup(html, "html.parser")
   else:
-    return BeautifulSoup(render.selenium_render(url), "html.parser")
+    return BeautifulSoup(render.selenium_render(url, tag), "html.parser")
 
 # load a kittyexplorer page
 def get_ke_soup(id):
@@ -21,6 +21,20 @@ def get_ke_soup(id):
   html = requests.get(url).content
   return BeautifulSoup(html, "html.parser")
 
+def create_attributes():
+  html = requests.get("http://www.kittyexplorer.com/").content
+  soup = BeautifulSoup(html, "html.parser")
+  print soup.h3.text
+  total_cats = int(re.search('\d+', soup.h3.text).group(0))
+  buttons = soup.find_all("button", class_="btn-primary")
+  cat_attrs=dict()
+  for button in buttons:
+    attr = button.text.strip().split()
+    pct = float(attr[1]) / total_cats * 100
+    cat_attrs[attr[0]] = pct
+
+  print cat_attrs
+  return cat_attrs
 
 class Marketplace:
 
@@ -38,19 +52,20 @@ class Marketplace:
   def set_soup(self):
     search = {'orderBy' : 'current_price', 'orderDirection' : 'asc', 
         'search' : '', 'sorting' : 'cheap'}
-    if len(self.attrs) > 0:
+    if self.attrs is not None:
       search['search'] += ','.join(self.attrs) + ' '
-    if len(self.gens) > 0:
-      search['search'] += 'gen:' + ','.join(map(str, self.gens))
-    if len(self.cooldown) > 0:
+    if self.gens is not None:
+      search['search'] += 'gen:' + ','.join(map(str, self.gens)) + ' '
+    if self.cooldown is not None:
       search['search'] += 'cooldown:' + ','.join(self.cooldown)
     url = self.base_url + urlencode(search).replace('+', '%20')
-    self.soup = get_ck_soup(url, self.selenium)
+    self.soup = get_ck_soup(url, 'KittiesFilter', self.selenium)
 
   def set_num_pages(self):
 #    num_results = self.soup.find("div", class_="KittiesFilter-header").span[0].text.replace(',', '')
     num_results = self.soup.find("div", class_="KittiesFilter-header").span.text
-    self.num_results = int(re.search('\d+', num_results).group(0))
+    self.num_results = re.search('\d+,?\d*', num_results).group(0)
+    self.num_results = int(self.num_results.replace(',', ''))
     print 'Found ' + str(self.num_results) + ' kitties'
     self.num_pages = int(self.num_results / self.num_kitties_per_page) + 1
 
@@ -86,7 +101,7 @@ class Kitty:
     print self.id
     self.price = price
     self.ck_url = self.base_ck_url + str(self.id)
-    self.ck_soup = get_ck_soup(self.ck_url, selenium=True)
+    self.ck_soup = get_ck_soup(self.ck_url, 'Kitty-attributes', selenium=True)
     self.ke_soup = get_ke_soup(id)
     self.set_gen()
     self.set_parents()
@@ -108,10 +123,9 @@ class Kitty:
   def set_attributes(self):
     """ Attributes are from KittyExplorer """
     attrs_soup = self.ke_soup.find_all("button", class_="btn-primary")
+    self.attrs = []
     if len(attrs_soup) > 0: # hack b/c some kitty explorer pages are empty
-      self.attrs = []
-      for i in range(0, self.num_attributes):
-        print i
+      for i in range(0, len(attrs_soup)):
         self.attrs.append(attrs_soup[i].text)
         if self.attrs[i] == "is fancy":
           self.num_attributes = i + 1
@@ -119,11 +133,20 @@ class Kitty:
           break
 
   def set_unique(self):
-    if not self.fancy:
+    if not self.fancy and len(self.attrs) > 0:
       for attr in self.attrs:
         pct = int(re.sub('%', '', attr.split()[1]))
         if pct < self.unique:
           self.unique = pct
+
+  def print_details(self):
+    print "ID: " + str(self.id)
+    print "Gen: " + str(self.gen)
+    print "Price: " + str(self.price)
+    print "Attrs:" 
+    print self.attrs
+    for parent in self.parents:
+      print parent.attrs
 
 class Parent(Kitty):
   def __init__(self, id):
