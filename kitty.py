@@ -2,7 +2,8 @@
 
 import render
 from bs4 import BeautifulSoup
-from urllib import urlencode
+from urllib import urlencode,urlopen
+import json
 import requests
 import re
 
@@ -20,6 +21,12 @@ def get_ke_soup(id):
   url = 'https://www.kittyexplorer.com/kitties/' + str(id)
   html = requests.get(url).content
   return BeautifulSoup(html, "html.parser")
+
+def get_kitty_details(id):
+  url = "http://api.cryptokitties.co/kitties/" + str(id)
+  response = urllib.urlopen(url)
+  data = json.loads(response.read())
+  return data
 
 def create_attributes():
   html = requests.get("http://www.kittyexplorer.com/").content
@@ -93,32 +100,30 @@ class Marketplace:
 
 class Kitty:
   """ A kitty class to describe a kitten """
-  base_ck_url = "https://www.cryptokitties.co/kitty/"
-  num_attributes = 8
   unique = 100
   def __init__(self, id, price=None):
     self.id = int(id)
     print self.id
-    self.price = price
-    self.ck_url = self.base_ck_url + str(self.id)
-    self.ck_soup = get_ck_soup(self.ck_url, 'Kitty-attributes', selenium=True)
-    self.ke_soup = get_ke_soup(id)
+    self.data = get_kitty_details(self.id)
+    self.fancy = self.data["is_fancy"]
+    self.set_price()
     self.set_gen()
-    self.set_parents()
-    self.fancy = False
+    if self.gen != 0:
+      self.set_parents()
     self.set_attributes()
     self.set_unique()
 
   def set_gen(self):
-    gen = self.ck_soup.find("a", class_="KittyHeader-details-generation").text
-    self.gen = int(re.search('\d+', gen).group(0))
+    self.gen = int(self.data["generation"])
 
   def set_parents(self):
     self.parents=[]
-    parent_soup = self.ck_soup.find_all("div", class_="KittyCard-subname")
-    for i in range(0,2): # parents should be first two results
-      id = re.search('\d+', parent_soup[i].text).group(0)
-      self.parents.append(Parent(id))
+    self.parents.append(Parent(self.data["sire"]["id"]))
+    self.parents.append(Parent(self.data["matron"]["id"]))
+
+  def set_price(self):
+    if bool(self.data["auction"]):
+      self.price = self.data["auction"]["current_price"]
 
   def set_attributes(self):
     """ Attributes are from KittyExplorer """
@@ -151,12 +156,8 @@ class Kitty:
 class Parent(Kitty):
   def __init__(self, id):
     self.id = int(id)
-    self.fancy = False
-    self.ke_soup = get_ke_soup(id)
+    self.data = get_kitty_details(self.id)
+    self.fancy = self.data["is_fancy"]
     self.set_gen()
     self.set_attributes()
     self.set_unique()
-
-  def set_gen(self):
-    gen = self.ke_soup.find("div", class_="col-md-9").h3.text
-    self.gen = int(gen.split()[-1])
