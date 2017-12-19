@@ -7,11 +7,11 @@ Renders a javascript page and returns the html.  There are 2 methods:
   2.) Uses selenium (slower), but allows to wait for page to load.
 """
 
-import sys
-from PyQt4.QtGui import *
-from PyQt4.QtCore import *
-from PyQt4.QtWebKit import *
-from lxml import html
+#import sys
+#from PyQt4.QtGui import *
+#from PyQt4.QtCore import *
+#from PyQt4.QtWebKit import *
+#from lxml import html
 from selenium import webdriver
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
@@ -21,6 +21,8 @@ from selenium.common.exceptions import TimeoutException
 #app = QApplication(sys.argv)
 
 # render cryptokitties page using PyQt4
+""" #NEED TO DOWNLOAD PyQt4 to work """
+"""
 class Render(QWebPage):
   def __init__(self, url):
     self.app = app
@@ -32,6 +34,7 @@ class Render(QWebPage):
   def _loadFinished(self, result):
     self.frame = self.mainFrame()
     self.app.quit()
+    """
 
 # render cryptokitties page in selenium and return the soup
 def selenium_render(url, tag, delay=5):

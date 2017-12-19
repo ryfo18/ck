@@ -1,11 +1,14 @@
 #!/usr/bin/python
 
-import render
+#import render
 from bs4 import BeautifulSoup
 from urllib import urlencode,urlopen
 import json
 import requests
 import re
+import render
+
+cat_attrs = 0
 
 # loads a cryptokitties page
 def get_ck_soup(url, tag=None, selenium=False):
@@ -22,25 +25,21 @@ def get_ke_soup(id):
   html = requests.get(url).content
   return BeautifulSoup(html, "html.parser")
 
-def get_kitty_details(id):
-  url = "http://api.cryptokitties.co/kitties/" + str(id)
-  response = urllib.urlopen(url)
-  data = json.loads(response.read())
-  return data
+def get_attributes_dict():
+  """ Attributes obtained from kittyexplorer.com. This function uses a global
+  variable to store them for performance """
+  global cat_attrs
+  if cat_attrs == 0:
+    html = requests.get("http://www.kittyexplorer.com/").content
+    soup = BeautifulSoup(html, "html.parser")
+    total_cats = int(re.search('\d+', soup.h3.text).group(0))
+    buttons = soup.find_all("button", class_="btn-primary")
+    cat_attrs=dict()
+    for button in buttons:
+      attr = button.text.strip().split()
+      pct = float(attr[1]) / total_cats * 100
+      cat_attrs[attr[0]] = pct
 
-def create_attributes():
-  html = requests.get("http://www.kittyexplorer.com/").content
-  soup = BeautifulSoup(html, "html.parser")
-  print soup.h3.text
-  total_cats = int(re.search('\d+', soup.h3.text).group(0))
-  buttons = soup.find_all("button", class_="btn-primary")
-  cat_attrs=dict()
-  for button in buttons:
-    attr = button.text.strip().split()
-    pct = float(attr[1]) / total_cats * 100
-    cat_attrs[attr[0]] = pct
-
-  print cat_attrs
   return cat_attrs
 
 class Marketplace:
@@ -81,8 +80,9 @@ class Marketplace:
     kitties = []
     for i in range(0, len(kitties_soup)):
       id = self.get_id(kitties_soup[i])
-      price = self.get_price(kitties_soup[i])
-      kitties.append(Kitty(id, price))
+      #price = self.get_price(kitties_soup[i])
+      #kitties.append(Kitty(id, price))
+      kitties.append(Kitty(id))
     return kitties
 
   def get_id(self, soup):
@@ -98,66 +98,79 @@ class Marketplace:
       price = float(re.search('\d+\.?\d*', price).group(0))
     return price
 
-class Kitty:
-  """ A kitty class to describe a kitten """
+class Cat:
+  """" Base class for all cats will initialize basic parameters """
   unique = 100
-  def __init__(self, id, price=None):
+  def __init__(self, id):
     self.id = int(id)
-    print self.id
-    self.data = get_kitty_details(self.id)
+    self.attrs_dict = get_attributes_dict()
+    self.attrs_list = None
+    self.data = self.get_kitty_details(self.id)
     self.fancy = self.data["is_fancy"]
-    self.set_price()
     self.set_gen()
-    if self.gen != 0:
-      self.set_parents()
     self.set_attributes()
     self.set_unique()
+
+  def get_kitty_details(self, id):
+    """ gets the information from the cryptokitties API """
+    url = "http://api.cryptokitties.co/kitties/" + str(id)
+    response = urlopen(url)
+    data = json.loads(response.read())
+    return data
 
   def set_gen(self):
     self.gen = int(self.data["generation"])
 
-  def set_parents(self):
-    self.parents=[]
-    self.parents.append(Parent(self.data["sire"]["id"]))
-    self.parents.append(Parent(self.data["matron"]["id"]))
-
-  def set_price(self):
-    if bool(self.data["auction"]):
-      self.price = self.data["auction"]["current_price"]
-
   def set_attributes(self):
-    """ Attributes are from KittyExplorer """
-    attrs_soup = self.ke_soup.find_all("button", class_="btn-primary")
     self.attrs = []
-    if len(attrs_soup) > 0: # hack b/c some kitty explorer pages are empty
-      for i in range(0, len(attrs_soup)):
-        self.attrs.append(attrs_soup[i].text)
-        if self.attrs[i] == "is fancy":
-          self.num_attributes = i + 1
-          self.fancy = True
-          break
+    if self.fancy is True:
+      self.attrs.append({"type" : "fancy", "desc" : self.data["fancy_type"], "pct" : self.attrs_dict[self.data["fancy_type"]]})
+    else:
+      for attr in self.data["cattributes"]:
+        self.attrs.append({"type" : attr["type"], "desc" : attr["description"], "pct" : self.attrs_dict[attr["description"]]})
 
   def set_unique(self):
-    if not self.fancy and len(self.attrs) > 0:
+    for attr in self.attrs:
+      if attr["pct"] < self.unique:
+        self.unique = attr["pct"]
+
+  def get_attrs_list(self):
+    """ returns a list of attributes sorted by rarity """
+    if self.attrs_list is None:
+      self.attrs_list = []
+      temp_dict = dict()
       for attr in self.attrs:
-        pct = int(re.sub('%', '', attr.split()[1]))
-        if pct < self.unique:
-          self.unique = pct
+        temp_dict.update({attr["desc"] : attr["pct"]})
+      for key, value in sorted(temp_dict.iteritems(), key=lambda (k,v): (v,k)):
+        self.attrs_list.append("%s %.2f" % (key, value))
+    return self.attrs_list
+
+
+class Kitty(Cat):
+  """ A kitty class to describe a kitten """
+  def __init__(self, id):
+    Cat.__init__(self, id)
+    print self.id
+    self.set_price()
+    if self.gen != 0:
+      self.set_parents()
+
+  def set_parents(self):
+    self.parents=[]
+    self.parents.append(Cat(self.data["sire"]["id"]))
+    self.parents.append(Cat(self.data["matron"]["id"]))
+
+  def set_price(self):
+    self.price = None
+    if bool(self.data["auction"]):
+      self.price = float(self.data["auction"]["current_price"]) * 1e-18
 
   def print_details(self):
     print "ID: " + str(self.id)
     print "Gen: " + str(self.gen)
     print "Price: " + str(self.price)
     print "Attrs:" 
-    print self.attrs
+    print list(self.get_attrs_list())
     for parent in self.parents:
-      print parent.attrs
+      print parent.get_attrs_list()
 
-class Parent(Kitty):
-  def __init__(self, id):
-    self.id = int(id)
-    self.data = get_kitty_details(self.id)
-    self.fancy = self.data["is_fancy"]
-    self.set_gen()
-    self.set_attributes()
-    self.set_unique()

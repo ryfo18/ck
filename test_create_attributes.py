@@ -1,4 +1,4 @@
 #!/usr/bin/python
 import kitty
 
-kitty.create_attributes()
+kitty.get_attributes_list()
